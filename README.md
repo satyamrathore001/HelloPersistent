@@ -1,2 +1,2 @@
 # HelloPersistent
-this is training repo in github
+this is readme file
