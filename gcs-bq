@@ -1,0 +1,93 @@
+from apache_beam.options.pipeline_options import PipelineOptions
+from apache_beam.runners.runner import PipelineState
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions, StandardOptions
+from apache_beam.options.value_provider import StaticValueProvider
+from apache_beam.options.value_provider import RuntimeValueProvider
+
+
+class Gcs_to_bq(PipelineOptions):
+    @classmethod
+    def _add_argparse_args(cls, parser):
+        parser.add_value_provider_argument('--input',
+                                           help='Input file to process.')
+        parser.add_value_provider_argument('--output',
+                                           help='Output table to write results to.')
+
+
+options = PipelineOptions()
+p = beam.Pipeline(options=options)
+user_options = options.view_as(Gcs_to_bq)
+
+
+def to_json(fields):
+    json_str = {"UPI_Banks": fields[0],
+                "Volume_Mn_By_Costumers": fields[1],
+                "Value_Cr_by_Costumers": fields[2],
+                "Volume_Mn": fields[3],
+                "Value_Cr": fields[4],
+                "Month": fields[5],
+                "Year": fields[6],
+                }
+    return json_str
+
+
+# class header(beam.DoFn):
+#     def process(self, element):
+#         list1 = []
+#         list1.appned(element.strip().split(','))
+
+
+SCHEMA = 'UPI_Banks:STRING,Volume_Mn_By_Costumers:FLOAT64,Value_Cr_by_Costumers:FLOAT64,Volume_Mn:FLOAT64,Value_Cr:FLOAT64,Month:INT64,Year:INT64'
+
+
+pipe1 = (p
+         | 'get_input' >> beam.io.ReadFromText(user_options.input, skip_header_lines=1)
+         | "Split by comma time" >> beam.Map(lambda record: record.split(','))
+         | 'cleaned_data to json' >> beam.Map(to_json)
+         | 'WriteToBigQuery' >> beam.io.WriteToBigQuery(
+           user_options.output,
+           schema=SCHEMA,
+           create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+           write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND)
+         )
+
+p.run()
+
+
+# convert to template
+
+
+# python - m wit_variable - -runner DataflowRunner - -project testing-services-01 - -staging_location gs: // asia-south1-inovalon-test-50ea7fcc-bucket/satya_templates/staging - -temp_location gs: // asia-south1-inovalon-test-50ea7fcc-bucket/satya_templates/temp - -template_location gs: // asia-south1-inovalon-test-50ea7fcc-bucket/satya_templates/wit_variable - -region us-central1
+
+options = PipelineOptions()
+table_spec = 'testing-services-ss.test_main.my_data'
+table_schema = 'id:INTEGER,name:STRING,age:INTEGER,address:STRING,salary:FLOAT,join_date:DATE'
+
+
+def parse_csv(line):
+    fields = line.split(',')
+    json_str = {
+        'id': fields[0],
+        'name': fields[1],
+        'age': fields[2],
+        'address': fields[3],
+        'salary': fields[4],
+        'join_date': fields[5]
+    }
+    return json_str
+
+
+# Define the pipeline.
+with beam.Pipeline(options=options) as pipeline:
+    lines = pipeline | 'Read from CSV' >> beam.io.ReadFromText(
+        'gs://karan_test_01/mydata.csv', skip_header_lines=1)
+    rows = lines | 'Parse CSV' >> beam.Map(parse_csv)
+    rows | 'Write to BigQuery' >> beam.io.WriteToBigQuery(
+        table_spec,
+        schema=table_schema,
+        write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
+        create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED
+    )
+
+pipeline.run()
