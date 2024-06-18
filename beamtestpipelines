@@ -1,0 +1,307 @@
+import apache_beam as beam
+from Dataflow.transforms import transforms_factory
+from apache_beam.testing.test_pipeline import TestPipeline
+from apache_beam.testing.util import assert_that, equal_to
+
+
+"""This test cases related to Informatica Transform Filters"""
+
+sample_data = [
+    {'id': 101, 'name': 'abnish', 'LName': 'kumar',
+     'city': 'pune', 'state': 'mH', 'Dob': '2023-01-01'},
+    {'id': 102, 'name': 'mohan', 'LName': 'kumar2',
+     'city': 'jaipur', 'state': 'mH', 'Dob': '2024-02-01'},
+    {'id': 103, 'name': 'satyam', 'LName': 'kumar',
+     'city': 'delhi', 'state': 'mH', 'Dob': '2022-03-01'},
+    {'id': 104, 'name': 'priyanka', 'LName': 'kumar4',
+     'city': 'indore', 'state': 'mH', 'Dob': '2025-04-01'},
+    {'id': 105, 'name': 'divya', 'LName': 'kumar5',
+     'city': 'pune', 'state': 'mH', 'Dob': '2026-05-01'},
+    {'id': 100, 'name': 'ghnashyam', 'LName': 'kumar6',
+     'city': 'pune', 'state': 'mH', 'Dob': '2027-05-01'},
+
+]
+
+sample_data_expression = [
+    {'id': 101, 'name': 'abnish', 'LName': 'kumar',
+     'city': 'pune', 'state': 'mH', 'Dob': '2023-01-01'},
+    {'id': 102, 'name': 'mohan', 'LName': 'kumar2',
+     'city': 'jaipur', 'state': 'mH', 'Dob': '2024-02-01'},
+    {'id': 103, 'name': 'satyam', 'LName': 'kumar',
+     'city': 'delhi', 'state': 'mH', 'Dob': '2022-03-01'},
+    {'id': 104, 'name': 'priyanka', 'LName': 'kumar4',
+     'city': 'indore', 'state': 'mH', 'Dob': '2025-04-01'},
+    {'id': 105, 'name': 'divya', 'LName': 'kumar5',
+     'city': 'pune', 'state': 'mH', 'Dob': '2026-05-01'},
+    {'id': 106, 'name': 'divya1', 'LName': None,
+     'city': 'pune1', 'state': 'mH', 'Dob': '2026-05-01'},
+
+
+]
+
+# source with empty input
+
+
+def test_filter_empty_data():
+    sample_data = [
+        {'id': None, 'name': None, 'LName': None,
+         'city': None, 'state': None, 'Dob': None},
+        {'id': None, 'name': None, 'LName': None,
+         'city': None, 'state': None, 'Dob': None}
+
+    ]
+
+    def Filter(element):
+        flag = True
+        # c1_type = element['state']
+        # if isinstance(c1_type, str):
+        #     if not element['state'] != 'mH':
+        #         flag = False
+        # elif isinstance(c1_type, int):
+        #     if not element['state'] != int('mH'):
+        #         flag = False
+
+        return flag
+
+    expected_output = [
+        {'id': None, 'name': None, 'LName': None,
+         'city': None, 'state': None, 'Dob': None},
+        {'id': None, 'name': None, 'LName': None,
+         'city': None, 'state': None, 'Dob': None}
+
+    ]
+
+    with TestPipeline() as p:
+        input_data = p | beam.Create(sample_data)
+        filtered_data = input_data | (transforms_factory(
+            "filter_transform"))(Filter, [{'include': True}])
+        assert_that(filtered_data, equal_to(expected_output))
+
+
+# Filter Test Case
+# All Rows FAil the Condition
+
+
+def test_filter_all_row__fail():
+    def Filter(element):
+        flag = True
+        c1_type = element['state']
+        if isinstance(c1_type, str):
+            if not element['state'] != 'mH':
+                flag = False
+        elif isinstance(c1_type, int):
+            if not element['state'] != int('mH'):
+                flag = False
+
+        return flag
+
+    expected_output = {}
+
+    with TestPipeline() as p:
+        input_data = p | beam.Create(sample_data)
+        filtered_data = input_data | (transforms_factory(
+            "filter_transform"))(Filter, [{'include': True}])
+        assert_that(filtered_data, equal_to(expected_output))
+
+# Condition Based on Numeric Column
+
+
+def test_filter_test():
+    def Filter_2(element):
+        flag = True
+        c1_type = element['id']
+        if isinstance(c1_type, str):
+            if not element['id'] > '103':
+                flag = False
+        elif isinstance(c1_type, int):
+            if not element['id'] > int('103'):
+                flag = False
+
+        return flag
+
+    expected_output = [
+        {'id': 104, 'name': 'priyanka', 'LName': 'kumar4',
+         'city': 'indore', 'state': 'mH', 'Dob': '2025-04-01'},
+        {'id': 105, 'name': 'divya', 'LName': 'kumar5',
+         'city': 'pune', 'state': 'mH', 'Dob': '2026-05-01'},
+
+    ]
+
+    with TestPipeline() as p:
+        input_data = p | beam.Create(sample_data)
+        filtered_data = input_data | (transforms_factory(
+            "filter_transform"))(Filter_2, [{'include': True}])
+        assert_that(filtered_data, equal_to(expected_output))
+
+
+# Condition Based on Text Column
+
+def test_filter_Text_column():
+
+    def Filter_2(element):
+        flag = True
+        c1_type = element['name']
+        if isinstance(c1_type, str):
+            if not element['name'] == 'satyam':
+                flag = False
+        elif isinstance(c1_type, int):
+            if not element['name'] > int('satyam'):
+                flag = False
+
+        return flag
+
+    expected_output = [
+        {'id': 103, 'name': 'satyam', 'LName': 'kumar',
+         'city': 'delhi', 'state': 'mH', 'Dob': '2022-03-01'},
+
+    ]
+
+    with TestPipeline() as p:
+        input_data = p | beam.Create(sample_data)
+        filtered_data = input_data | (transforms_factory(
+            "filter_transform"))(Filter_2, [{'include': True}])
+        assert_that(filtered_data, equal_to(expected_output))
+
+# Condition Based on Date Column
+
+
+def test_filter_Date_column():
+
+    def Filter_2(element):
+        flag = True
+        c1_type = element['Dob']
+        if isinstance(c1_type, str):
+            if not element['Dob'] > '2024-02-01':
+                flag = False
+        elif isinstance(c1_type, int):
+            if not element['Dob'] > int('2024-02-01'):
+                flag = False
+
+        return flag
+
+    expected_output = [
+        {'id': 104, 'name': 'priyanka', 'LName': 'kumar4',
+         'city': 'indore', 'state': 'mH', 'Dob': '2025-04-01'},
+        {'id': 105, 'name': 'divya', 'LName': 'kumar5',
+         'city': 'pune', 'state': 'mH', 'Dob': '2026-05-01'},
+        {'id': 100, 'name': 'ghnashyam', 'LName': 'kumar6',
+         'city': 'pune', 'state': 'mH', 'Dob': '2027-05-01'},
+
+    ]
+
+    with TestPipeline() as p:
+        input_data = p | beam.Create(sample_data)
+        filtered_data = input_data | (transforms_factory(
+            "filter_transform"))(Filter_2, [{'include': True}])
+        assert_that(filtered_data, equal_to(expected_output))
+
+# All Rows pass the Condition
+
+
+def test_filter_all_row__pass():
+    def Filter(element):
+        flag = True
+        c1_type = element['state']
+        if isinstance(c1_type, str):
+            if not element['state'] == 'mH':
+                flag = False
+        elif isinstance(c1_type, int):
+            if not element['state'] == int('mH'):
+                flag = False
+
+        return flag
+
+    expected_output = [
+        {'id': 101, 'name': 'abnish', 'LName': 'kumar',
+         'city': 'pune', 'state': 'mH', 'Dob': '2023-01-01'},
+        {'id': 102, 'name': 'mohan', 'LName': 'kumar2',
+         'city': 'jaipur', 'state': 'mH', 'Dob': '2024-02-01'},
+        {'id': 103, 'name': 'satyam', 'LName': 'kumar',
+         'city': 'delhi', 'state': 'mH', 'Dob': '2022-03-01'},
+        {'id': 104, 'name': 'priyanka', 'LName': 'kumar4',
+         'city': 'indore', 'state': 'mH', 'Dob': '2025-04-01'},
+        {'id': 105, 'name': 'divya', 'LName': 'kumar5',
+         'city': 'pune', 'state': 'mH', 'Dob': '2026-05-01'},
+        {'id': 100, 'name': 'ghnashyam', 'LName': 'kumar6',
+         'city': 'pune', 'state': 'mH', 'Dob': '2027-05-01'},
+
+    ]
+
+    with TestPipeline() as p:
+        input_data = p | beam.Create(sample_data)
+        filtered_data = input_data | (transforms_factory(
+            "filter_transform"))(Filter, [{'include': True}])
+        assert_that(filtered_data, equal_to(expected_output))
+
+# Condition Based on Multiple Columns
+
+
+def test_filter_multiple_columns():
+    def Filter(element):
+        # ['c1 != 1', 'c2 != amit']
+        flag = True
+        c1_type = element['id']
+        if isinstance(c1_type, str):
+            if not element['id'] > '103':
+                flag = False
+        elif isinstance(c1_type, int):
+            if not element['id'] > int('103'):
+                flag = False
+
+        if not element['state'] == 'mH':
+            flag = False
+        return flag
+
+    expected_output = [
+
+        {'id': 104, 'name': 'priyanka', 'LName': 'kumar4',
+         'city': 'indore', 'state': 'mH', 'Dob': '2025-04-01'},
+        {'id': 105, 'name': 'divya', 'LName': 'kumar5',
+         'city': 'pune', 'state': 'mH', 'Dob': '2026-05-01'},
+
+    ]
+
+    with TestPipeline() as p:
+        input_data = p | beam.Create(sample_data)
+        filtered_data = input_data | (transforms_factory(
+            "filter_transform"))(Filter, [{'include': True}])
+        assert_that(filtered_data, equal_to(expected_output))
+
+
+def test_filter_null_columns():
+    def Filter(element):
+        # ['c1 != 1', 'c2 != amit']
+        flag = True
+        c1_type = element['LName']
+        if isinstance(c1_type, str):
+            if not element['LName'] > '':
+                flag = False
+        elif isinstance(c1_type, int):
+            if not element['LName'] > int(''):
+                flag = False
+        return flag
+
+    expected_output = [
+
+        {'id': 106, 'name': 'divya1', 'LName': None,
+         'city': 'pune1', 'state': 'mH', 'Dob': '2026-05-01'}
+
+    ]
+
+    with TestPipeline() as p:
+        input_data = p | beam.Create(sample_data_expression)
+        filtered_data = input_data | (transforms_factory(
+            "filter_transform"))(Filter, [{'include': True}])
+        assert_that(filtered_data, equal_to(expected_output))
+
+
+# Run the test function
+if __name__ == '__main__':
+    test_filter_empty_data()
+    test_filter_all_row__fail()
+    test_filter_test()
+    test_filter_Text_column()
+    test_filter_Date_column()
+    test_filter_all_row__pass()
+    test_filter_multiple_columns()
+    test_filter_null_columns()
