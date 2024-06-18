@@ -1,0 +1,202 @@
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions, SetupOptions
+from google.cloud.sql.connector import Connector, IPTypes
+import sqlalchemy
+import logging
+from google.cloud import secretmanager_v1
+
+
+def key_value_fn(element):
+    val = element["source_type"], element["BigQuery_Type"]
+    logging.info(val)
+    return val
+
+
+# reading secrets from secret manager just provide the secret detail like "projects/{project_id}/secrets/{secret_id}/versions/{version_id}"
+class secret_manager:
+    def get_secret_Data(secret_detail):
+        client = secretmanager_v1.SecretManagerServiceClient()
+        response = client.access_secret_version(
+            request={"name": secret_detail})
+        data = response.payload.data.decode("UTF-8")
+        print("Data: {}".format(data))
+        return data
+# Reading schema from information_schema
+
+
+class read_fn(beam.DoFn):
+    def __init__(self, cloudSqlInstanceName, cloudSqlDatabase, cloudSqltablename, cloudSqlUser, cloudSqlPassword):
+        self.cloudSqlInstanceName = cloudSqlInstanceName
+        self.cloudSqlDatabase = cloudSqlDatabase
+        self.cloudSqltablename = cloudSqltablename
+        self.cloudSqlUser = cloudSqlUser
+        self.cloudSqlPassword = cloudSqlPassword
+
+    def setup(self):
+        instance_name = secret_manager.get_secret_Data(
+            self.cloudSqlInstanceName.get())
+        database = secret_manager.get_secret_Data(self.cloudSqlDatabase.get())
+        user = secret_manager.get_secret_Data(self.cloudSqlUser.get())
+        password = secret_manager.get_secret_Data(self.cloudSqlPassword.get())
+        connector = Connector()
+
+        def getconn():
+            conn = connector.connect(
+                instance_name,
+                "pymysql",
+                user=user,
+                password=password,
+                db=database,
+            )
+            return conn
+
+        self.pool = sqlalchemy.create_engine(
+            "mysql+pymysql://",
+            creator=getconn,
+        )
+
+    def process(self, element, datatypes_mapping):
+        database = secret_manager.get_secret_Data(self.cloudSqlDatabase.get())
+        table_name = self.cloudSqltablename.get()
+        pool = self.pool
+        column_names = []
+        data_types = []
+        with pool.connect() as db_conn:
+            result = db_conn.execute(f"""select table_name,column_name,data_type from information_schema.columns
+                                        where table_name = '{table_name}' and table_schema = '{database}' order by ordinal_position """).fetchall()
+            for row in result:
+                column_names.append(row[1])
+                data_types.append(row[2])
+        schema_mysql = zip(column_names, data_types)
+        schema_bigquery = []
+        for column_name, datatype in schema_mysql:
+            x = {"name": f"{column_name}",
+                 "type": f"{datatypes_mapping[datatype.upper()]}"}
+            schema_bigquery.append(x)
+        schema_bigquery = {"fields": schema_bigquery}
+        logging.info(schema_bigquery)
+        yield 'schema', schema_bigquery
+
+
+# Reading table data
+class read_data_fn(beam.DoFn):
+    def __init__(self, cloudSqlInstanceName, cloudSqlDatabase, cloudSqltablename, cloudSqlUser, cloudSqlPassword):
+        self.cloudSqlInstanceName = cloudSqlInstanceName
+        self.cloudSqlDatabase = cloudSqlDatabase
+        self.cloudSqltablename = cloudSqltablename
+        self.cloudSqlUser = cloudSqlUser
+        self.cloudSqlPassword = cloudSqlPassword
+
+    def setup(self):
+        instance_name = secret_manager.get_secret_Data(
+            self.cloudSqlInstanceName.get())
+        database = secret_manager.get_secret_Data(self.cloudSqlDatabase.get())
+        user = secret_manager.get_secret_Data(self.cloudSqlUser.get())
+        password = secret_manager.get_secret_Data(self.cloudSqlPassword.get())
+        connector = Connector()
+
+        def getconn():
+            conn = connector.connect(
+                instance_name,
+                "pymysql",
+                user=user,
+                password=password,
+                db=database,
+            )
+            return conn
+
+        self.pool = sqlalchemy.create_engine(
+            "mysql+pymysql://",
+            creator=getconn,
+        )
+
+    def process(self, element, schema_side_inputs):
+        table_name = self.cloudSqltablename.get()
+        schema = schema_side_inputs["schema"]
+        headers = []
+        for column_dict in schema["fields"]:
+            headers.append(column_dict["name"])
+        header_string = ','.join(headers)
+        pool = self.pool
+        with pool.connect() as db_conn:
+            result = db_conn.execute(f"""select {header_string} from {table_name}  
+                                         """).fetchall()
+            for element in result:
+                row = dict(zip(headers, element))
+                yield row
+
+
+# creating and running the pipeline
+def run(argv=None, save_main_session=True):
+    """Build and run the pipeline."""
+    class ContactUploadOptions(PipelineOptions):
+        """
+        Runtime Parameters given during template execution
+        path and organization parameters are necessary for execution of pipeline
+        campaign is optional for committing to bigquery
+        """
+        @classmethod
+        def _add_argparse_args(cls, parser):
+            parser.add_value_provider_argument(
+                '--outputBQlocation',
+                type=str,
+                help='output bigquery table reference eg PROJECTID:DATASET.TABLE')
+            parser.add_value_provider_argument(
+                '--cloudSqlUser',
+                type=str,
+                help='User id for to use to connect to cloud sql ')
+            parser.add_value_provider_argument(
+                '--cloudSqlPassword',
+                type=str,
+                help=' password  to use to connect to cloud sql ')
+            parser.add_value_provider_argument(
+                '--cloudSqlDatabase',
+                type=str,
+                help='cloud sql database to in which fxrates table is present ')
+            parser.add_value_provider_argument(
+                '--cloudSqlInstanceName',
+                type=str,
+                help='cloud sql instance name like climate-delta-dev:us-east4:climatedelta-dev-instance')
+            parser.add_value_provider_argument(
+                '--cloudSqltablename',
+                type=str,
+                help='table name in which data is to be dumped')
+            parser.add_value_provider_argument(
+                '--mapping_query',
+                type=str,
+                help='query reading datatype conversion from source database to bigquery ')
+
+    contact_options = PipelineOptions().view_as(ContactUploadOptions)
+    pipeline_options = PipelineOptions()
+    pipeline_options.view_as(SetupOptions).save_main_session = True
+    p = beam.Pipeline(options=pipeline_options)
+
+    data_type = (p
+                 | "Mapping Mysql To BQ" >> beam.io.ReadFromBigQuery(query=contact_options.mapping_query, use_standard_sql=True)
+                 | "Extracting Datatypes" >> beam.Map(key_value_fn)
+                 )
+    # # creating schema for end table
+    schema = (p
+              | "Creating Mysql Connection" >> beam.Create(["intializing connection"])
+              | "Reading table Metadata" >> beam.ParDo(read_fn(contact_options.cloudSqlInstanceName, contact_options.cloudSqlDatabase,
+                                                               contact_options.cloudSqltablename, contact_options.cloudSqlUser, contact_options.cloudSqlPassword),
+                                                       beam.pvalue.AsDict(data_type))
+              )
+
+    # convertin schema pcollection to side input
+    schema_dict = beam.pvalue.AsDict(schema)
+    # # reading table data and loading it to BigQuery
+    write_to_bigquery = (p | "Reading table data" >> beam.Create(["intializing connection"])
+                         | "Mapping Table Data to header Rows" >> beam.ParDo(read_data_fn(contact_options.cloudSqlInstanceName, contact_options.cloudSqlDatabase, contact_options.cloudSqltablename, contact_options.cloudSqlUser, contact_options.cloudSqlPassword), schema_dict)
+                         | "Wrting to BigQuery" >> beam.io.WriteToBigQuery(contact_options.outputBQlocation,
+                                                                           schema=lambda table, schema_coll: schema_coll['schema'], schema_side_inputs=(schema_dict,),
+                                                                           create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+                                                                           write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
+                                                                           method="STREAMING_INSERTS")
+                         )
+    # Runnning the pipeline
+    p.run()
+
+
+if __name__ == '__main__':
+    run()
