@@ -1,0 +1,148 @@
+from airflow.utils.task_group import TaskGroup
+from airflow.providers.google.cloud.operators.kubernetes_engine import (
+    GKEStartPodOperator)
+from airflow.kubernetes.secret import Secret
+from utility.constants import *
+
+secret_volume = Secret(deploy_type=deploy_type,
+                       deploy_target=deploy_target, secret=secret, key=key)
+
+def tf_dm_hk_smc_fnd_dim_masterflow_v1() -> TaskGroup:
+    """Taskgroup that contain 
+    multiple GKEStartPodOperators"""
+    with TaskGroup(group_id='tf_dm_hk_smc_fnd_dim_masterflow_v1') as tg1:
+        tf_dm_hk_smc_fnd_dim_masterflow_v1_list = [
+            'tf_DM_HK_SMC_FND_DIM_FAX_v1', 'tf_DM_HK_SMC_FND_DIM_IMAGE_v1', 
+            'tf_DM_HK_SMC_FND_DIM_IMAGE_ACTION_LOG_v1', 'tf_DM_HK_SMC_FND_DIM_OUTCOME_STATUS_v1', 
+            'tf_DM_HK_SMC_FND_DIM_OUTCOME_SUBSTATUS_v1',
+            'tf_DM_HK_SMC_FND_DIM_REFERENCE_CATEGORY_v1', 
+            'tf_DM_HK_SMC_FND_DIM_STATUS_v1', 'tf_DM_HK_SMC_FND_DIM_IMAGE_QUEUE_v1', 
+            'tf_DM_HK_SMC_FND_DIM_REIMBURSEMENT_v1', 'tf_DM_HK_SMC_FND_DIM_FAX_TEMPLATE_v1', 
+            'tf_DM_HK_SMC_FND_DIM_FAX_RECIPIENT_TYPE_v1', 'tf_DM_HK_SMC_FND_DIM_REASON_v1', 
+            'tf_DM_HK_SMC_FND_DIM_DC_RX_OPPORTUNITY_v1', 'tf_DM_HK_SMC_FND_DIM_ACTIVITY_ASSIGN_v1', 
+            'tf_DM_HK_SMC_FND_DIM_PROGRAM_v1', 'tf_DM_HK_SMC_FND_DIM_UDTABLE_FIELD_v1', 
+            'tf_DM_HK_SMC_FND_DIM_WORK_STEP_v1','tf_DM_HK_SMC_FND_DIM_ITEM_TYPE_v1', 
+            'tf_DM_HK_SMC_FND_DIM_NOTIFICATION_METHOD_v1', 
+            'tf_DM_HK_SMC_FND_DIM_EXTERNAL_PHARMACY_v1', 
+            'tf_DM_HK_SMC_FND_DIM_DRUG_PRICING_v1', 'tf_DM_HK_SMC_FND_DIM_ICD10_v1', 
+            'tf_DM_HK_SMC_FND_DIM_NOTIFICATION_STATUS_v1', 
+            'tf_DM_HK_SMC_FND_DIM_PATIENT_ADDRESS_v1', 
+            'tf_DM_HK_SMC_FND_DIM_PATIENT_INSURANCE_v1', 
+            'tf_DM_HK_SMC_FND_DIM_PAT_INS_DRUG_APPEAL_v1', 
+            'tf_DM_HK_SMC_FND_DIM_DRUG_v1', 'tf_DM_HK_SMC_FND_DIM_CLINIC_v1', 
+            'tf_DM_HK_SMC_FND_DIM_DRUG_SPECIFIC_AUTHORIZATION_v1', 
+            'tf_DM_HK_SMC_FND_DIM_NOTIFICATION_v1', 
+            'tf_DM_HK_SMC_FND_DIM_CONTACT_v1', 'tf_DM_HK_SMC_FND_DIM_PAYER_v1', 
+            'tf_DM_HK_SMC_FND_DIM_PHYSICIAN_ADDRESS_v1', 'tf_DM_HK_SMC_FND_DIM_PHYSICIAN_v1', 
+            'tf_DM_HK_SMC_FND_DIM_PLAN_v1', 'tf_DM_HK_SMC_FND_DIM_PRESCRIPTION_TRANSFER_v1', 
+            'tf_DM_HK_SMC_FND_DIM_PRESCRIPTION_v1', 'tf_DM_HK_SMC_FND_DIM_USER_INFO_v1']
+        parallel_task_list = []
+        for tf_name in tf_dm_hk_smc_fnd_dim_masterflow_v1_list:
+            tf_dm_hk_smc_fnd_dim_masterflow_v1 = GKEStartPodOperator(
+                task_id=f"{tf_name}",
+                name=f"airflow-pod-{tf_name}",
+                project_id=project_id,
+                location=cluster_region,
+                namespace='dev',
+                cluster_name=cluster_name,
+                image=image_name_dim,
+                env_vars={
+                    'pipeline_name': f"{tf_name}",
+                    "GOOGLE_APPLICATION_CREDENTIALS": GOOGLE_APPLICATION_CREDENTIALS
+                },
+                secrets=[secret_volume],
+                get_logs=True,
+                is_delete_operator_pod=True,
+                affinity=affinity,
+            )
+            parallel_task_list.append(tf_dm_hk_smc_fnd_dim_masterflow_v1)
+
+        task_list1 = ['tf_DM_HK_SMC_FND_DIM_WORK_STAGE_v1',
+                      'tf_DM_HK_SMC_FND_DIM_USER_WORK_STAGE_v1']
+        for tf_name in task_list1:
+            tf_dm_hk_smc_fnd_dim_masterflow_v1 = GKEStartPodOperator(
+                task_id=f"{tf_name}",
+                name=f"airflow-pod-{tf_name}",
+                project_id=project_id,
+                location=cluster_region,
+                namespace='dev',
+                cluster_name=cluster_name,
+                image=image_name_dim,
+                env_vars={
+                    'pipeline_name': f"{tf_name}",
+                    "GOOGLE_APPLICATION_CREDENTIALS": GOOGLE_APPLICATION_CREDENTIALS
+                },
+                secrets=[secret_volume],
+                get_logs=True,
+                is_delete_operator_pod=True,
+                affinity=affinity,
+            )
+            parallel_task_list.append(tf_dm_hk_smc_fnd_dim_masterflow_v1)
+
+        task_list2 = ['tf_DM_HK_SMC_FND_DIM_WORK_STAGE_ASSIGN_v1',
+                      'tf_DM_HK_SMC_FND_DIM_WORK_STAGE_USER_HISTORY_v1']
+        for tf_name in task_list2:
+            tf_dm_hk_smc_fnd_dim_masterflow_v1 = GKEStartPodOperator(
+                task_id=f"{tf_name}",
+                name=f"airflow-pod-{tf_name}",
+                project_id=project_id,
+                location=cluster_region,
+                namespace='dev',
+                cluster_name=cluster_name,
+                image=image_name_dim,
+                env_vars={
+                    'pipeline_name': f"{tf_name}",
+                    "GOOGLE_APPLICATION_CREDENTIALS": GOOGLE_APPLICATION_CREDENTIALS
+                },
+                secrets=[secret_volume],
+                get_logs=True,
+                is_delete_operator_pod=True,
+                affinity=affinity,
+            )
+            parallel_task_list.append(tf_dm_hk_smc_fnd_dim_masterflow_v1)
+
+        task_list3 = ['tf_DM_HK_SMC_FND_DIM_PATIENT_v1',
+                      'tf_DM_HK_SMC_FND_DIM_PATIENT_RESTRICTION_v1']
+        for tf_name in task_list3:
+            tf_dm_hk_smc_fnd_dim_masterflow_v1 = GKEStartPodOperator(
+                task_id=f"{tf_name}",
+                name=f"airflow-pod-{tf_name}",
+                project_id=project_id,
+                location=cluster_region,
+                namespace='dev',
+                cluster_name=cluster_name,
+                image=image_name_dim,
+                env_vars={
+                    'pipeline_name': f"{tf_name}",
+                    "GOOGLE_APPLICATION_CREDENTIALS": GOOGLE_APPLICATION_CREDENTIALS
+                },
+                secrets=[secret_volume],
+                get_logs=True,
+                is_delete_operator_pod=True,
+                affinity=affinity,
+            )
+            parallel_task_list.append(tf_dm_hk_smc_fnd_dim_masterflow_v1)
+
+        task_list4 = ['tf_DM_HK_SMC_FND_DIM_PHARMACY_v1',
+                      'tf_DM_HK_SMC_FND_DIM_USER_PHARMACY_v1']
+        for tf_name in task_list4:
+            tf_dm_hk_smc_fnd_dim_masterflow_v1 = GKEStartPodOperator(
+                task_id=f"{tf_name}",
+                name=f"airflow-pod-{tf_name}",
+                project_id=project_id,
+                location=cluster_region,
+                namespace='dev',
+                cluster_name=cluster_name,
+                image=image_name_dim,
+                env_vars={
+                    'pipeline_name': f"{tf_name}",
+                    "GOOGLE_APPLICATION_CREDENTIALS": GOOGLE_APPLICATION_CREDENTIALS
+                },
+                secrets=[secret_volume],
+                get_logs=True,
+                is_delete_operator_pod=True,
+                affinity=affinity,
+            )
+            parallel_task_list.append(tf_dm_hk_smc_fnd_dim_masterflow_v1)
+
+    return tg1
