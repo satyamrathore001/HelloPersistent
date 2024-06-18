@@ -200,3 +200,112 @@ def run(argv=None, save_main_session=True):
 
 if __name__ == '__main__':
     run()
+
+
+
+
+
+
+
+
+
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions, SetupOptions
+from google.cloud.sql.connector import Connector
+import sqlalchemy
+from google.cloud import secretmanager
+
+
+class sql_to_bq(PipelineOptions):
+    @classmethod
+    def _add_argparse_args(cls, parser):
+        parser.add_value_provider_argument('--outputBQlocation',
+                                           help='Input file to process.')
+        parser.add_value_provider_argument('--cloudSqlUser',
+                                           help='Output table to write results to.')
+        parser.add_value_provider_argument('--cloudSqlPassword',
+                                           help='Input file to process.')
+        parser.add_value_provider_argument('--cloudSqlDatabase',
+                                           help='Output table to write results to.')
+        parser.add_value_provider_argument('--cloudSqlInstanceName',
+                                           help='Input file to process.')
+        parser.add_value_provider_argument('--cloudSqltablename',
+                                           help='Output table to write results to.')
+
+
+class read_fn(beam.DoFn):
+    def __init__(self, cloudSqlInstanceName, cloudSqlDatabase, cloudSqlUser, cloudSqltablename):
+        self.cloudSqlInstanceName = cloudSqlInstanceName
+        self.cloudSqlDatabase = cloudSqlDatabase
+        self.cloudSqlUser = cloudSqlUser
+
+        self.cloudSqltablename = cloudSqltablename
+        self.header = ["TransactionID", "CustomerID", "CustomerDOB", "CustGender", "CustLocation",
+                       "CustAccountBalance", "TransactionDate", "TransactionTime", "TransactionAmount", "time"]
+
+    def sec_keys(self):  # we can create class for multiple secret values  review in mohan code
+
+        client = secretmanager.SecretManagerServiceClient()
+        request = {
+            "name": f"projects/1028030775100/secrets/cloudSqlPassword/versions/1"}
+        response = client.access_secret_version(request)
+        secret_string = response.payload.data.decode("UTF-8")
+        return secret_string
+
+    def process(self, elements):
+        instance = self.cloudSqlInstanceName.get()
+        user = self.cloudSqlUser.get()
+        db1 = self.cloudSqlDatabase.get()
+        table_name = self.cloudSqltablename.get()
+        connector = Connector()
+
+        def getconn():
+            conn = connector.connect(
+                instance,
+                "pymysql",
+                user=user,
+                password=self.sec_keys(),
+                db=db1,
+            )
+            return conn
+
+        pool = sqlalchemy.create_engine(
+            "mysql+pymysql://",
+            creator=getconn,
+        )
+        with pool.connect() as db_conn:
+            result = db_conn.execute(
+                f"""select *,CURRENT_TIMESTAMP() as time from {table_name} limit 10""").fetchall()
+            for row in result:
+                yield dict(zip(self.header, row))
+
+
+options = PipelineOptions()
+
+p = beam.Pipeline(options=options)
+
+user_options = options.view_as(sql_to_bq)
+
+
+options.view_as(SetupOptions).save_main_session = True
+
+
+# SCHEMA = 'TransactionID:STRING,CustomerID:STRING,CustomerDOB:DATE,CustGender:STRING,CustLocation:STRING,CustAccountBalance:FLOAT64,TransactionDate:DATE,TransactionTime:INT64,TransactionAmount:INT64'
+
+a = (p
+     | beam.Create(["connection"])
+     | beam.ParDo(read_fn(user_options.cloudSqlInstanceName,
+                          user_options.cloudSqlDatabase, user_options.cloudSqlUser,
+                          user_options.cloudSqltablename))
+     | 'WriteToBigQuery' >> beam.io.WriteToBigQuery(
+         user_options.outputBQlocation,
+         schema="SCHEMA_AUTODETECT",
+         create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+         write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND)
+     )
+
+p.run()
+
+
+# python -m sql_job --runner DataflowRunner --project testing-services-ss  --staging_location gs://dlp_poc_csv/saty_templates/staging --temp_location gs://dlp_poc_csv/saty_templates/temp --template_location gs://dlp_poc_csv/saty_templates/templates/saty_sql_job --region us-central1 --subnetwork https://www.googleapis.com/compute/v1/projects/testing-services-ss/regions/us-central1/subnetworks/dlp-poc
+
